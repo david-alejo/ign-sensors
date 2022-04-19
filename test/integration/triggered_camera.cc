@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Open Source Robotics Foundation
+ * Copyright (C) 2022 Open Source Robotics Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,8 @@
 
 #include <ignition/common/Console.hh>
 #include <ignition/common/Filesystem.hh>
-#include <ignition/sensors/Manager.hh>
 #include <ignition/sensors/CameraSensor.hh>
+#include <ignition/sensors/Manager.hh>
 
 // TODO(louise) Remove these pragmas once ign-rendering is disabling the
 // warnings
@@ -48,6 +48,8 @@
 #include "test_config.h"  // NOLINT(build/include)
 #include "TransportTestTools.hh"
 
+using namespace std::chrono_literals;
+
 class CameraSensorTest: public testing::Test,
   public testing::WithParamInterface<const char *>
 {
@@ -63,9 +65,8 @@ class CameraSensorTest: public testing::Test,
 
 void CameraSensorTest::ImagesWithBuiltinSDF(const std::string &_renderEngine)
 {
-  // get the darn test data
   std::string path = ignition::common::joinPaths(PROJECT_SOURCE_PATH, "test",
-      "sdf", "camera_sensor_builtin.sdf");
+      "sdf", "triggered_camera_sensor_builtin.sdf");
   sdf::SDFPtr doc(new sdf::SDF());
   sdf::init(doc);
   ASSERT_TRUE(sdf::readFile(path, doc));
@@ -77,18 +78,25 @@ void CameraSensorTest::ImagesWithBuiltinSDF(const std::string &_renderEngine)
   ASSERT_TRUE(linkPtr->HasElement("sensor"));
   auto sensorPtr = linkPtr->GetElement("sensor");
 
+  // If ogre is not the engine, don't run the test
+  if (_renderEngine.compare("ogre") != 0)
+  {
+    igndbg << "Engine '" << _renderEngine
+      << "' doesn't support segmentation cameras" << std::endl;
+    return;
+  }
+
   // Setup ign-rendering with an empty scene
   auto *engine = ignition::rendering::engine(_renderEngine);
   if (!engine)
   {
     igndbg << "Engine '" << _renderEngine
-              << "' is not supported" << std::endl;
+           << "' is not supported" << std::endl;
     return;
   }
 
   ignition::rendering::ScenePtr scene = engine->CreateScene("scene");
 
-  // do the test
   ignition::sensors::Manager mgr;
 
   ignition::sensors::CameraSensor *sensor =
@@ -96,36 +104,42 @@ void CameraSensorTest::ImagesWithBuiltinSDF(const std::string &_renderEngine)
   ASSERT_NE(sensor, nullptr);
   sensor->SetScene(scene);
 
+  sdf::Sensor sdfSensor;
+  sdfSensor.Load(sensorPtr);
+  EXPECT_EQ(true, sdfSensor.CameraSensor()->Triggered());
+
   ASSERT_NE(sensor->RenderingCamera(), nullptr);
   EXPECT_NE(sensor->Id(), sensor->RenderingCamera()->Id());
   EXPECT_EQ(256u, sensor->ImageWidth());
   EXPECT_EQ(257u, sensor->ImageHeight());
 
-  EXPECT_EQ(std::string("base_camera"), sensor->FrameId());
+  // check camera image before trigger
+  {
+    std::string imageTopic =
+        "/test/integration/TriggeredCameraPlugin_imagesWithBuiltinSDF";
+    WaitForMessageTestHelper<ignition::msgs::Image> helper(imageTopic);
+    mgr.RunOnce(std::chrono::steady_clock::duration::zero(), true);
+    EXPECT_FALSE(helper.WaitForMessage(3s)) << helper;
+  }
 
-  std::string topic = "/test/integration/CameraPlugin_imagesWithBuiltinSDF";
-  WaitForMessageTestHelper<ignition::msgs::Image> helper(topic);
+  // trigger camera through topic
+  ignition::transport::Node triggerNode;
+  std::string triggerTopic =
+      "/test/integration/TriggeredCameraPlugin_imagesWithBuiltinSDF/trigger";
 
-  // Update once to create image
-  mgr.RunOnce(std::chrono::steady_clock::duration::zero());
+  auto pub = triggerNode.Advertise<ignition::msgs::Boolean>(triggerTopic);
+  ignition::msgs::Boolean msg;
+  msg.set_data(true);
+  pub.Publish(msg);
 
-  EXPECT_TRUE(helper.WaitForMessage()) << helper;
-
-  // verify sensor does not update / publish data when not active
-  sensor->SetActive(false);
-  EXPECT_FALSE(sensor->IsActive());
-  mgr.RunOnce(std::chrono::seconds(1));
-  EXPECT_FALSE(helper.WaitForMessage(std::chrono::seconds(3))) << helper;
-
-  // sensor should update when forced even if it is not active
-  mgr.RunOnce(std::chrono::seconds(1), true);
-  EXPECT_TRUE(helper.WaitForMessage(std::chrono::seconds(3))) << helper;
-
-  // make the sensor active again and verify data is published
-  sensor->SetActive(true);
-  EXPECT_TRUE(sensor->IsActive());
-  mgr.RunOnce(std::chrono::seconds(2));
-  EXPECT_TRUE(helper.WaitForMessage(std::chrono::seconds(3))) << helper;
+  // check camera image after trigger
+  {
+    std::string imageTopic =
+        "/test/integration/TriggeredCameraPlugin_imagesWithBuiltinSDF";
+    WaitForMessageTestHelper<ignition::msgs::Image> helper(imageTopic);
+    mgr.RunOnce(std::chrono::steady_clock::duration::zero(), true);
+    EXPECT_TRUE(helper.WaitForMessage(3s)) << helper;
+  }
 
   // test removing sensor
   // first make sure the sensor objects do exist

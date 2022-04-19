@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Open Source Robotics Foundation
+ * Copyright (C) 2022 Open Source Robotics Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@
 #include <ignition/sensors/Manager.hh>
 #include <ignition/sensors/CameraSensor.hh>
 
-// TODO(louise) Remove these pragmas once ign-rendering is disabling the
+// TODO(WilliamLewww): Remove these pragmas once ign-rendering is disabling the
 // warnings
 #ifdef _WIN32
 #pragma warning(push)
@@ -48,7 +48,7 @@
 #include "test_config.h"  // NOLINT(build/include)
 #include "TransportTestTools.hh"
 
-class CameraSensorTest: public testing::Test,
+class DistortionCameraSensorTest: public testing::Test,
   public testing::WithParamInterface<const char *>
 {
   // Documentation inherited
@@ -61,11 +61,12 @@ class CameraSensorTest: public testing::Test,
   public: void ImagesWithBuiltinSDF(const std::string &_renderEngine);
 };
 
-void CameraSensorTest::ImagesWithBuiltinSDF(const std::string &_renderEngine)
+void DistortionCameraSensorTest::ImagesWithBuiltinSDF(
+    const std::string &_renderEngine)
 {
   // get the darn test data
   std::string path = ignition::common::joinPaths(PROJECT_SOURCE_PATH, "test",
-      "sdf", "camera_sensor_builtin.sdf");
+      "sdf", "distortion_camera_sensor_builtin.sdf");
   sdf::SDFPtr doc(new sdf::SDF());
   sdf::init(doc);
   ASSERT_TRUE(sdf::readFile(path, doc));
@@ -76,6 +77,13 @@ void CameraSensorTest::ImagesWithBuiltinSDF(const std::string &_renderEngine)
   auto linkPtr = modelPtr->GetElement("link");
   ASSERT_TRUE(linkPtr->HasElement("sensor"));
   auto sensorPtr = linkPtr->GetElement("sensor");
+
+  if (_renderEngine == "ogre2")
+  {
+    igndbg << "Distortion camera not supported yet in rendering engine: "
+            << _renderEngine << std::endl;
+    return;
+  }
 
   // Setup ign-rendering with an empty scene
   auto *engine = ignition::rendering::engine(_renderEngine);
@@ -101,31 +109,14 @@ void CameraSensorTest::ImagesWithBuiltinSDF(const std::string &_renderEngine)
   EXPECT_EQ(256u, sensor->ImageWidth());
   EXPECT_EQ(257u, sensor->ImageHeight());
 
-  EXPECT_EQ(std::string("base_camera"), sensor->FrameId());
-
-  std::string topic = "/test/integration/CameraPlugin_imagesWithBuiltinSDF";
+  std::string topic =
+      "/test/integration/DistortionCameraPlugin_imagesWithBuiltinSDF";
   WaitForMessageTestHelper<ignition::msgs::Image> helper(topic);
 
   // Update once to create image
   mgr.RunOnce(std::chrono::steady_clock::duration::zero());
 
   EXPECT_TRUE(helper.WaitForMessage()) << helper;
-
-  // verify sensor does not update / publish data when not active
-  sensor->SetActive(false);
-  EXPECT_FALSE(sensor->IsActive());
-  mgr.RunOnce(std::chrono::seconds(1));
-  EXPECT_FALSE(helper.WaitForMessage(std::chrono::seconds(3))) << helper;
-
-  // sensor should update when forced even if it is not active
-  mgr.RunOnce(std::chrono::seconds(1), true);
-  EXPECT_TRUE(helper.WaitForMessage(std::chrono::seconds(3))) << helper;
-
-  // make the sensor active again and verify data is published
-  sensor->SetActive(true);
-  EXPECT_TRUE(sensor->IsActive());
-  mgr.RunOnce(std::chrono::seconds(2));
-  EXPECT_TRUE(helper.WaitForMessage(std::chrono::seconds(3))) << helper;
 
   // test removing sensor
   // first make sure the sensor objects do exist
@@ -145,12 +136,12 @@ void CameraSensorTest::ImagesWithBuiltinSDF(const std::string &_renderEngine)
 }
 
 //////////////////////////////////////////////////
-TEST_P(CameraSensorTest, ImagesWithBuiltinSDF)
+TEST_P(DistortionCameraSensorTest, ImagesWithBuiltinSDF)
 {
   ImagesWithBuiltinSDF(GetParam());
 }
 
-INSTANTIATE_TEST_CASE_P(CameraSensor, CameraSensorTest,
+INSTANTIATE_TEST_CASE_P(DistortionCameraSensor, DistortionCameraSensorTest,
     RENDER_ENGINE_VALUES, ignition::rendering::PrintToStringParam());
 
 //////////////////////////////////////////////////
