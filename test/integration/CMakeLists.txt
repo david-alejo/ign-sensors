@@ -43,8 +43,9 @@ if (DRI_TESTS)
       ${PROJECT_LIBRARY_TARGET_NAME}-depth_camera
       ${PROJECT_LIBRARY_TARGET_NAME}-camera
       ${PROJECT_LIBRARY_TARGET_NAME}-radar
-      # ${PROJECT_LIBRARY_TARGET_NAME}-gpu_lidar
-      # ${PROJECT_LIBRARY_TARGET_NAME}-gpu_radar
+      ${PROJECT_LIBRARY_TARGET_NAME}-lidar
+      ${PROJECT_LIBRARY_TARGET_NAME}-gpu_lidar
+      ${PROJECT_LIBRARY_TARGET_NAME}-gpu_radar
       ${PROJECT_LIBRARY_TARGET_NAME}-rgbd_camera
       ${PROJECT_LIBRARY_TARGET_NAME}-thermal_camera
       ${PROJECT_LIBRARY_TARGET_NAME}-segmentation_camera
